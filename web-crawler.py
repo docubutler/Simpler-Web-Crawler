@@ -11,6 +11,8 @@ import multiprocessing
 import asyncio
 import sys
 from contextlib import asynccontextmanager
+from bs4 import BeautifulSoup
+from selectolax.parser import HTMLParser
 
 load_dotenv()
 
@@ -42,6 +44,27 @@ def init_resources():
         print(f"Critical error during resource initialization: {e}")
         raise
 
+def extract_important_text_selectolax(html_content):
+    tree = HTMLParser(html_content)
+    # Remove unwanted tags
+    for tag in ["script", "style", "nav", "footer", "aside", "form", "s"]:
+        for node in tree.tags(tag):
+            node.decompose()
+    text = tree.text(separator="\n", strip=True)
+    lines = [line for line in text.splitlines() if len(line) > 30]
+    return "\n".join(lines)
+    
+
+def extract_important_text_bs4(html_content):
+    soup = BeautifulSoup(html_content, "lxml")
+    # Remove unwanted tags
+    for tag in ["script", "style", "nav", "footer", "aside", "form", "s", "a"]:
+        for element in soup.find_all(tag):
+            element.decompose()
+    # Get visible text
+    text = soup.get_text(separator="\n", strip=True)
+    lines = [line for line in text.splitlines() if len(line) > 30]
+    return "\n".join(lines)
 
 class HTMLSpider(scrapy.Spider):
     name = "html_spider"
@@ -71,15 +94,15 @@ class HTMLSpider(scrapy.Spider):
 
     def parse(self, response):
         print(f"Parsing: {response.url}")
-        html_content = response.text
+        important_text = extract_important_text_bs4(response.text)
         
         # Append results to the shared list
         self.results.append({
             "url": response.url,
-            "html": html_content 
+            "html": important_text
         })
         
-        yield {"url": response.url, "html": html_content}
+        yield {"url": response.url, "html": important_text}
 
         # Extract and follow links (example: all <a> tags)
         # Uncomment if you want to scrap through website's hyperlinks
