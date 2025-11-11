@@ -44,6 +44,7 @@ def init_resources():
         print(f"Critical error during resource initialization: {e}")
         raise
 
+# ignore this function - kept for reference
 def extract_important_text_selectolax(html_content):
     tree = HTMLParser(html_content)
     # Remove unwanted tags
