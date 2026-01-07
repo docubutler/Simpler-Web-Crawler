@@ -37,7 +37,12 @@ def init_resources():
         # Use a specific context to help with process pre-spawning/eager creation,
         # moving the initial startup cost to the server boot time.
         mp_context = multiprocessing.get_context('spawn')
-        executor = ProcessPoolExecutor(max_workers=MAX_WORKERS, mp_context=mp_context,max_tasks_per_child=1)
+        # max_tasks_per_child argument was added in Python 3.11. Removing it for compatibility.
+        if sys.version_info >= (3, 11):
+             executor = ProcessPoolExecutor(max_workers=MAX_WORKERS, mp_context=mp_context,max_tasks_per_child=1)
+        else:
+             executor = ProcessPoolExecutor(max_workers=MAX_WORKERS, mp_context=mp_context)
+
         manager = multiprocessing.Manager()
         print("Resources initialized successfully.")
     except Exception as e:
