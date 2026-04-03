@@ -52,20 +52,45 @@ def extract_important_text_selectolax(html_content):
         for node in tree.tags(tag):
             node.decompose()
     text = tree.text(separator="\n", strip=True)
-    lines = [line for line in text.splitlines() if len(line) > 30]
+    lines = [line for line in text.splitlines()]
     return "\n".join(lines)
     
 
 def extract_important_text_bs4(html_content):
     soup = BeautifulSoup(html_content, "lxml")
-    # Remove unwanted tags
-    for tag in ["script", "style", "nav", "footer", "aside", "form", "s", "a"]:
+    plans = []
+    
+    # 1. Find all images that have "Plan" or "EZ" in their alt text
+    # This is much more reliable than CSS classes that might change
+    plan_images = soup.find_all("img", alt=lambda x: x and ("Plan" in x or "EZ" in x))
+    
+    for img in plan_images:
+        label = img.get("alt", "Unknown Plan")
+        
+        # 2. Find the container holding this image and its details
+        # We look for the closest div that likely contains the 'RM' price
+        parent_container = img.find_parent("div", class_="element-widget-container") or \
+                           img.find_parent("div", class_="elementor-widget-container") or \
+                           img.parent
+        
+        if parent_container:
+            # Use separator=" | " to prevent the text from crumbling together
+            # This turns "30DaysUnlimited" into "30 Days | Unlimited"
+            details = parent_container.get_text(separator=" | ", strip=True)
+            plans.append(f"PLAN: {label} \nDETAILS: {details}\n{'-'*20}")
+
+    # 3. Standard Cleanup for the rest (FAQs, etc.)
+    for tag in ["script", "style", "nav", "footer", "aside"]:
         for element in soup.find_all(tag):
             element.decompose()
-    # Get visible text
-    text = soup.get_text(separator="\n", strip=True)
-    lines = [line for line in text.splitlines() if len(line) > 30]
-    return "\n".join(lines)
+            
+    # Get any remaining text that wasn't caught in the plan loop
+    remaining_text = soup.get_text(separator="\n", strip=True)
+    
+    if not plans:
+        return f"DEBUG: Logic failed to find plans. Remaining text length: {len(remaining_text)}"
+
+    return "\n".join(plans) + "\n\nOTHER INFO:\n" + remaining_text
 
 class HTMLSpider(scrapy.Spider):
     name = "html_spider"
@@ -93,6 +118,23 @@ class HTMLSpider(scrapy.Spider):
         self.allowed_domains = allowed_domains
         self.results = results 
 
+    def start_requests(self):
+        for url in self.start_urls:
+            yield scrapy.Request(
+                url=url,
+                meta={
+                    "playwright": True,
+                    "playwright_include_page": True,
+                    "playwright_page_methods": [
+                        # Wait for the price table to exist
+                        {"method": "wait_for_selector", "args": [".elementor-price-table"]},
+                        # Wait 2 seconds for the EZ images to finish 'Lazy Loading'
+                        {"method": "wait_for_timeout", "args": [2000]},
+                    ],
+                },
+                callback=self.parse
+            )
+
     def parse(self, response):
         print(f"Parsing: {response.url}")
         important_text = extract_important_text_bs4(response.text)
@@ -104,6 +146,13 @@ class HTMLSpider(scrapy.Spider):
         })
         
         yield {"url": response.url, "html": important_text}
+
+        with open("debug_render.html", "w", encoding="utf-8") as f:
+            f.write(response.text)
+        
+        # Log how many cards it actually finds
+        cards = response.css(".elementor-price-table")
+        print(f"DEBUG: Found {len(cards)} plan cards.")
 
         # Extract and follow links (example: all <a> tags)
         # Uncomment if you want to scrap through website's hyperlinks
