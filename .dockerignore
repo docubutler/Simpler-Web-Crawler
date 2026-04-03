@@ -1,0 +1,8 @@
+.git
+.env
+__pycache__
+*.html
+*.log
+.venv
+node_modules
+web-crawler.tar

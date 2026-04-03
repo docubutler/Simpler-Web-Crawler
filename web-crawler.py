@@ -56,41 +56,46 @@ def extract_important_text_selectolax(html_content):
     return "\n".join(lines)
     
 
-def extract_important_text_bs4(html_content):
+def extract_important_text_bs4(html_content, url=""):
     soup = BeautifulSoup(html_content, "lxml")
     plans = []
     
-    # 1. Find all images that have "Plan" or "EZ" in their alt text
-    # This is much more reliable than CSS classes that might change
-    plan_images = soup.find_all("img", alt=lambda x: x and ("Plan" in x or "EZ" in x))
-    
-    for img in plan_images:
-        label = img.get("alt", "Unknown Plan")
-        
-        # 2. Find the container holding this image and its details
-        # We look for the closest div that likely contains the 'RM' price
-        parent_container = img.find_parent("div", class_="element-widget-container") or \
-                           img.find_parent("div", class_="elementor-widget-container") or \
-                           img.parent
-        
-        if parent_container:
-            # Use separator=" | " to prevent the text from crumbling together
-            # This turns "30DaysUnlimited" into "30 Days | Unlimited"
-            details = parent_container.get_text(separator=" | ", strip=True)
-            plans.append(f"PLAN: {label} \nDETAILS: {details}\n{'-'*20}")
+    # --- SITE-SPECIFIC: Eastel Logic ---
+    if "eastel.com.my" in url or "webtest.eastel.asia" in url:
+        plan_images = soup.find_all("img", alt=lambda x: x and ("Plan" in x or "EZ" in x))
+        for img in plan_images:
+            label = img.get("alt", "Unknown Plan")
+            # Anchor to the parent container
+            container = img.find_parent("div", class_="elementor-widget-container") or img.parent
+            if container:
+                # separator=" | " prevents the 'crumbling'
+                details = container.get_text(separator=" | ", strip=True)
+                plans.append(f"[EASTEL] {label}: {details}")
 
-    # 3. Standard Cleanup for the rest (FAQs, etc.)
+    # --- GENERIC: Fallback for Hotlink/Maxis/Others ---
+    if not plans:
+        # Search for tables or divs that contain pricing keywords
+        for container in soup.find_all(['table', 'div']):
+            text = container.get_text(strip=True)
+            # Look for common Malaysian Telco patterns
+            if "RM" in text and ("GB" in text or "Unlimited" in text):
+                # Filter to only small 'leaf' containers to avoid grabbing the whole page
+                if len(container.find_all(['div', 'td'])) < 10:
+                    # Prevent adding the same plan twice
+                    if any(text[:50] in p for p in plans): continue
+                    
+                    clean_text = container.get_text(separator=" | ", strip=True)
+                    plans.append(f"[PLAN]: {clean_text}")
+
+    # Final Cleanup and Output
     for tag in ["script", "style", "nav", "footer", "aside"]:
         for element in soup.find_all(tag):
             element.decompose()
             
-    # Get any remaining text that wasn't caught in the plan loop
-    remaining_text = soup.get_text(separator="\n", strip=True)
-    
     if not plans:
-        return f"DEBUG: Logic failed to find plans. Remaining text length: {len(remaining_text)}"
+        return f"DEBUG: No plan patterns found on {url}. Raw text: " + soup.get_text()[:500]
 
-    return "\n".join(plans) + "\n\nOTHER INFO:\n" + remaining_text
+    return "\n\n".join(plans)
 
 class HTMLSpider(scrapy.Spider):
     name = "html_spider"
@@ -137,7 +142,7 @@ class HTMLSpider(scrapy.Spider):
 
     def parse(self, response):
         print(f"Parsing: {response.url}")
-        important_text = extract_important_text_bs4(response.text)
+        important_text = extract_important_text_bs4(response.text, response.url)
         
         # Append results to the shared list
         self.results.append({
