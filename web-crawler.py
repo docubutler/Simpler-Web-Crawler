@@ -62,15 +62,58 @@ def extract_important_text_bs4(html_content, url=""):
     
     # --- SITE-SPECIFIC: Eastel Logic ---
     if "eastel.com.my" in url or "webtest.eastel.asia" in url:
-        plan_images = soup.find_all("img", alt=lambda x: x and ("Plan" in x or "EZ" in x))
-        for img in plan_images:
-            label = img.get("alt", "Unknown Plan")
-            # Anchor to the parent container
-            container = img.find_parent("div", class_="elementor-widget-container") or img.parent
-            if container:
-                # separator=" | " prevents the 'crumbling'
-                details = container.get_text(separator=" | ", strip=True)
-                plans.append(f"[EASTEL] {label}: {details}")
+        if "/idd" in url:
+            import re
+            import json
+            match = re.search(r'const\s+roamingData\s*=\s*(\{[\s\S]*?\});', html_content)
+            if match:
+                try:
+                    data = json.loads(match.group(1))
+                    key_map = {
+                        "outWithin": ("Outgoing calls (within the country)", "per minute"),
+                        "outMY": ("Outgoing calls (to Malaysia)", "per minute"),
+                        "outOthers": ("Outgoing calls (to Other Countries)", "per minute"),
+                        "inc": ("Incoming calls", "per minute"),
+                        "sms": ("SMS", "per SMS")
+                    }
+                    for country, details in data.items():
+                        carriers_info = []
+                        for carrier, rates in details.get("carriers", {}).items():
+                            rates_list = []
+                            for k, v in rates.items():
+                                if k in key_map:
+                                    label, unit = key_map[k]
+                                    rates_list.append(f"{label}: {v} {unit}")
+                                else:
+                                    rates_list.append(f"{k}: {v}")
+                            rates_str = ", ".join(rates_list)
+                            carriers_info.append(f"Carrier {carrier} ({rates_str})")
+                        
+                        passes_info = []
+                        for p in details.get("passes", []):
+                            passes_info.append(f"Pass: {p.get('name')} ({p.get('price')}/{p.get('duration')}, Quota: {p.get('detail')})")
+                        
+                        free_pass = "Free Roaming Pass: Yes" if details.get("hasFreePass") else "Free Roaming Pass: No"
+                        
+                        info = f"[EASTEL IDD/Roaming] Country: {country}\n"
+                        if carriers_info:
+                            info += "  " + "\n  ".join(carriers_info) + "\n"
+                        if passes_info:
+                            info += "  " + "\n  ".join(passes_info) + "\n"
+                        info += f"  {free_pass}"
+                        plans.append(info)
+                except Exception as e:
+                    plans.append(f"DEBUG: Failed to parse roamingData JSON: {e}")
+        else:
+            plan_images = soup.find_all("img", alt=lambda x: x and ("Plan" in x or "EZ" in x))
+            for img in plan_images:
+                label = img.get("alt", "Unknown Plan")
+                # Anchor to the parent container
+                container = img.find_parent("div", class_="elementor-widget-container") or img.parent
+                if container:
+                    # separator=" | " prevents the 'crumbling'
+                    details = container.get_text(separator=" | ", strip=True)
+                    plans.append(f"[EASTEL] {label}: {details}")
 
     # --- GENERIC: Fallback for Hotlink/Maxis/Others ---
     if not plans:
