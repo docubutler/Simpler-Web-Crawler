@@ -16,11 +16,10 @@ SHELL ["conda", "run", "-n", "web-crawler", "/bin/bash", "-c"]
 COPY . .
 
 # Install Playwright and Scrapy-Playwright with pip inside the environment
-RUN conda run -n web-crawler pip install playwright scrapy-playwright && \
-    conda run -n web-crawler playwright install --with-deps
+RUN conda run -n web-crawler playwright install --with-deps
 
 # Expose FastAPI port
 EXPOSE 8000
 
 # Start FastAPI server
-CMD ["conda", "run", "-n", "web-crawler", "uvicorn", "web-crawler:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["conda", "run", "--no-capture-output", "-n", "web-crawler", "uvicorn", "web-crawler:app", "--host", "0.0.0.0", "--port", "8000"]
